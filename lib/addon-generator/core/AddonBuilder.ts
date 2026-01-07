@@ -2,6 +2,80 @@ import JSZip from 'jszip';
 import { v4 as uuidv4 } from 'uuid';
 import type { AddonConfig, EntityDefinition, ItemDefinition, BlockDefinition, ManifestJson, AddonBuildResult } from '@/types/addon';
 
+// 베드락 1.21.50에서 유효한 behavior 목록
+const VALID_BEHAVIORS = new Set([
+  'float', 'panic', 'mount_pathing', 'breed', 'tempt', 'follow_parent',
+  'random_stroll', 'random_look_around', 'look_at_player', 'hurt_by_target',
+  'nearest_attackable_target', 'melee_attack', 'ranged_attack', 'leap_at_target',
+  'ocelot_sit_on_block', 'stay_while_sitting', 'follow_owner', 'owner_hurt_by_target',
+  'owner_hurt_target', 'random_swim', 'move_to_water', 'avoid_mob_type',
+  'flee_sun', 'restrict_sun', 'restrict_open_door', 'door_interact', 'break_door',
+  'move_towards_target', 'move_towards_restriction', 'random_fly', 'circle_around_anchor',
+  'swoop_attack', 'charge_attack', 'stomp_attack', 'knockback_roar', 'stalk_and_pounce',
+  'delayed_attack', 'snacking', 'slime_attack', 'swim_idle', 'swim_wander',
+  'player_ride_tamed', 'skeleton_horse_trap', 'move_to_land', 'lay_egg', 'lay_down',
+  'inspect_bookshelf', 'explore_outskirts', 'defend_trusted_target', 'find_cover',
+  'enderman_leave_block', 'enderman_take_block', 'drop_item_for', 'send_event',
+  'charge_held_item', 'eat_carried_item', 'pickup_items', 'share_items', 'barter',
+  'admire_item', 'celebrate', 'celebrate_survive', 'equip_item', 'go_home',
+  'stay_near_noteblock', 'summon_entity', 'timer_flag_1', 'timer_flag_2', 'timer_flag_3',
+  'random_sitting', 'follow_mob', 'move_to_village', 'move_to_poi', 'work',
+  'work_composter', 'mingle', 'sleep', 'nap', 'rise_to_liquid_level',
+  'squid_idle', 'squid_move_away_from_ground', 'squid_flee', 'squid_out_of_water',
+  'guardian_attack', 'silverfish_merge_with_stone', 'silverfish_wake_up_friends',
+  'wither_random_attack_pos_goal', 'wither_target_highest_damage',
+  'dragonchargeplayer', 'dragondeath', 'dragonflaming', 'dragonholdingpattern',
+  'dragonlanding', 'dragonscanning', 'dragonstrafeplayer', 'dragontakeoff',
+  'vex_copy_owner_target', 'vex_random_move',
+  'find_mount', 'find_underwater_treasure', 'move_to_block', 'raid_garden',
+  'ram_attack', 'play', 'follow_caravan', 'roll', 'stroll_towards_village',
+  'move_indoors', 'scared', 'trade_interest', 'trade_with_player',
+]);
+
+// behavior 이름을 유효한 것으로 매핑
+function mapBehaviorName(name: string): string | null {
+  const normalized = name.toLowerCase().replace(/-/g, '_').replace(/\s+/g, '_');
+
+  // 직접 매핑
+  const mappings: Record<string, string> = {
+    'hover': 'float',
+    'fly': 'random_fly',
+    'attack': 'melee_attack',
+    'melee': 'melee_attack',
+    'ranged': 'ranged_attack',
+    'target': 'nearest_attackable_target',
+    'target_player': 'nearest_attackable_target',
+    'wander': 'random_stroll',
+    'stroll': 'random_stroll',
+    'look': 'random_look_around',
+    'swim': 'random_swim',
+    'fireball': 'ranged_attack',
+    'fireball_attack': 'ranged_attack',
+    'dragon_fireball_attack': 'ranged_attack',
+    'dragon_strafe_player': 'dragonstrafeplayer',
+    'fly_node_path': 'random_fly',
+    'breath_attack': 'ranged_attack',
+    'fire_breath': 'ranged_attack',
+  };
+
+  if (mappings[normalized]) {
+    return mappings[normalized];
+  }
+
+  if (VALID_BEHAVIORS.has(normalized)) {
+    return normalized;
+  }
+
+  // 부분 매칭 시도
+  for (const valid of VALID_BEHAVIORS) {
+    if (normalized.includes(valid) || valid.includes(normalized)) {
+      return valid;
+    }
+  }
+
+  return null;
+}
+
 export class AddonBuilder {
   private config: AddonConfig;
   private behaviorPack: {
@@ -173,42 +247,134 @@ export class AddonBuilder {
   private buildBehaviorEntity(entity: EntityDefinition, fullIdentifier: string): object {
     const components: Record<string, unknown> = {};
 
+    // 기본 컴포넌트
     if (entity.health) {
       components['minecraft:health'] = { value: entity.health.value, max: entity.health.max };
+    } else {
+      components['minecraft:health'] = { value: 20, max: 20 };
     }
 
     if (entity.movement) {
-      components['minecraft:movement'] = { value: entity.movement.value };
-      components[`minecraft:movement.${entity.movement.type || 'basic'}`] = {};
+      components['minecraft:movement'] = { value: entity.movement.value || 0.3 };
+      const moveType = entity.movement.type || 'basic';
+      if (moveType === 'fly') {
+        components['minecraft:movement.fly'] = {};
+        components['minecraft:navigation.fly'] = {
+          can_path_over_water: true,
+          can_pass_doors: true,
+          can_path_from_air: true,
+        };
+      } else {
+        components['minecraft:movement.basic'] = {};
+        components['minecraft:navigation.walk'] = {
+          can_path_over_water: false,
+          avoid_water: true,
+          can_pass_doors: true,
+        };
+      }
+    } else {
+      components['minecraft:movement'] = { value: 0.3 };
+      components['minecraft:movement.basic'] = {};
     }
 
-    if (entity.physics !== false) {
-      components['minecraft:physics'] = { has_gravity: true, has_collision: true };
-    }
+    // 물리
+    components['minecraft:physics'] = { has_gravity: true, has_collision: true };
 
     if (entity.collisionBox) {
-      components['minecraft:collision_box'] = { width: entity.collisionBox.width, height: entity.collisionBox.height };
+      components['minecraft:collision_box'] = {
+        width: entity.collisionBox.width || 0.6,
+        height: entity.collisionBox.height || 1.8
+      };
+    } else {
+      components['minecraft:collision_box'] = { width: 0.6, height: 1.8 };
     }
 
+    // 패밀리 타입
     if (entity.familyTypes?.length) {
       components['minecraft:type_family'] = { family: entity.familyTypes };
+    } else {
+      components['minecraft:type_family'] = { family: ['mob'] };
     }
 
+    // 공격
     if (entity.attack) {
-      components['minecraft:attack'] = { damage: entity.attack.damage };
+      components['minecraft:attack'] = { damage: entity.attack.damage || 5 };
     }
 
-    if (entity.navigation) {
-      components[`minecraft:navigation.${entity.navigation.type || 'walk'}`] = {
-        can_path_over_water: entity.navigation.canPathOverWater ?? false,
-        can_swim: entity.navigation.canSwim ?? false,
-        avoid_water: entity.navigation.avoidWater ?? true,
-      };
-    }
+    // behavior 추가 - 유효한 것만
+    if (entity.behaviors && entity.behaviors.length > 0) {
+      const addedBehaviors = new Set<string>();
 
-    if (entity.behaviors) {
       for (const behavior of entity.behaviors) {
-        components[`minecraft:behavior.${behavior.type}`] = { priority: behavior.priority, ...behavior.params };
+        const behaviorName = behavior.type || behavior.name;
+        if (!behaviorName) continue;
+
+        const validName = mapBehaviorName(behaviorName);
+        if (validName && !addedBehaviors.has(validName)) {
+          addedBehaviors.add(validName);
+          const params = behavior.params || {};
+          components[`minecraft:behavior.${validName}`] = {
+            priority: behavior.priority ?? addedBehaviors.size,
+            ...params
+          };
+        }
+      }
+
+      // 기본 behavior가 없으면 추가
+      if (!addedBehaviors.has('float')) {
+        components['minecraft:behavior.float'] = { priority: 0 };
+      }
+      if (!addedBehaviors.has('random_stroll') && !addedBehaviors.has('random_fly')) {
+        if (entity.movement?.type === 'fly') {
+          components['minecraft:behavior.random_fly'] = { priority: 6, xz_dist: 10, y_dist: 7, y_offset: 0 };
+        } else {
+          components['minecraft:behavior.random_stroll'] = { priority: 6, speed_multiplier: 1.0 };
+        }
+      }
+      if (!addedBehaviors.has('random_look_around')) {
+        components['minecraft:behavior.random_look_around'] = { priority: 7 };
+      }
+    } else {
+      // 기본 behavior 세트
+      components['minecraft:behavior.float'] = { priority: 0 };
+      if (entity.movement?.type === 'fly') {
+        components['minecraft:behavior.random_fly'] = { priority: 6, xz_dist: 10, y_dist: 7, y_offset: 0 };
+      } else {
+        components['minecraft:behavior.random_stroll'] = { priority: 6, speed_multiplier: 1.0 };
+      }
+      components['minecraft:behavior.random_look_around'] = { priority: 7 };
+      components['minecraft:behavior.look_at_player'] = { priority: 8, look_distance: 8.0 };
+    }
+
+    // 적대적 몹이면 공격 behavior 추가
+    if (entity.attack && entity.attack.damage > 0) {
+      if (!components['minecraft:behavior.melee_attack']) {
+        components['minecraft:behavior.melee_attack'] = {
+          priority: 2,
+          speed_multiplier: 1.2,
+          track_target: true
+        };
+      }
+      if (!components['minecraft:behavior.nearest_attackable_target']) {
+        components['minecraft:behavior.nearest_attackable_target'] = {
+          priority: 3,
+          must_see: true,
+          reselect_targets: true,
+          within_radius: 25.0,
+          entity_types: [
+            {
+              filters: {
+                test: 'is_family',
+                subject: 'other',
+                value: 'player'
+              },
+              max_dist: 35
+            }
+          ]
+        };
+      }
+      if (!components['minecraft:behavior.hurt_by_target']) {
+        components['minecraft:behavior.hurt_by_target'] = { priority: 1 };
       }
     }
 
@@ -223,7 +389,7 @@ export class AddonBuilder {
           identifier: fullIdentifier,
           is_spawnable: entity.isSpawnable ?? true,
           is_summonable: entity.isSummonable ?? true,
-          is_experimental: entity.isExperimental ?? false,
+          is_experimental: false,
         },
         component_groups: entity.componentGroups || {},
         components,
@@ -242,7 +408,8 @@ export class AddonBuilder {
       textures.default = `textures/entity/${baseName}`;
     }
 
-    return {
+    // 올바른 형식의 resource entity
+    const resourceEntity: Record<string, unknown> = {
       format_version: '1.10.0',
       'minecraft:client_entity': {
         description: {
@@ -250,13 +417,16 @@ export class AddonBuilder {
           materials: entity.materials || { default: 'entity_alphatest' },
           textures,
           geometry: entity.geometryReferences || { default: `geometry.${baseName}` },
-          animations: entity.animationReferences || {},
-          animation_controllers: entity.animationControllerReferences || [],
-          render_controllers: entity.renderControllerReferences || ['controller.render.default'],
-          spawn_egg: entity.spawnEgg || { base_color: '#4A90D9', overlay_color: '#87CEEB' },
+          render_controllers: ['controller.render.default'],
+          spawn_egg: entity.spawnEgg || {
+            base_color: '#4A90D9',
+            overlay_color: '#87CEEB'
+          },
         },
       },
     };
+
+    return resourceEntity;
   }
 
   addItem(item: ItemDefinition): this {

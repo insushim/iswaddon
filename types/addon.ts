@@ -45,7 +45,7 @@ export interface EntityDefinition {
     canSwim?: boolean;
     avoidWater?: boolean;
   };
-  behaviors?: Array<{ type: string; priority: number; params?: Record<string, unknown> }>;
+  behaviors?: Array<{ type?: string; name?: string; priority: number; params?: Record<string, unknown> }>;
   componentGroups?: Record<string, Record<string, unknown>>;
   events?: Record<string, unknown>;
   additionalComponents?: Record<string, unknown>;
