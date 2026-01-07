@@ -73,8 +73,10 @@ export default function CreatePage() {
   const store = useAddonStore();
 
   const handleAnalyze = useCallback(async (concept: string, options: { conceptType: string; detailed: boolean }) => {
+    console.log('[CreatePage] handleAnalyze 호출:', { concept: concept.substring(0, 100), options });
     try {
       const result = await analyze({ concept, ...options }) as AnalysisResult;
+      console.log('[CreatePage] AI 분석 결과:', result);
       if (result) {
         setAnalysisResult(result);
 
@@ -85,6 +87,7 @@ export default function CreatePage() {
         });
 
         if (result.detailedAnalysis) {
+          console.log('[CreatePage] 상세 분석 데이터 로드:', result.detailedAnalysis);
           store.loadFromAnalysis({
             conceptType: result.analysis.conceptType,
             analysis: result.analysis,
@@ -95,28 +98,43 @@ export default function CreatePage() {
         setStep('analysis');
       }
     } catch (error) {
+      console.error('[CreatePage] AI 분석 오류:', error);
       toast.error('AI 분석 중 오류가 발생했습니다');
     }
   }, [analyze, store]);
 
   const handleGenerate = useCallback(async () => {
+    console.log('[CreatePage] handleGenerate 호출');
+    console.log('[CreatePage] 현재 스토어 상태:', {
+      name: store.name,
+      namespace: store.namespace,
+      entities: store.entities.length,
+      items: store.items.length,
+      blocks: store.blocks.length,
+    });
+
     if (!store.name || !store.namespace) {
+      console.error('[CreatePage] 이름 또는 네임스페이스 누락');
       toast.error('에드온 이름과 네임스페이스를 입력해주세요');
       setStep('config');
       return;
     }
 
     try {
+      console.log('[CreatePage] 에드온 생성 시작...');
       const result = await generate();
+      console.log('[CreatePage] 에드온 생성 결과:', result);
       if (result) {
         setGenerationResult(result);
         setStep('result');
         toast.success('에드온이 성공적으로 생성되었습니다!');
       }
     } catch (error) {
-      toast.error('에드온 생성 중 오류가 발생했습니다');
+      console.error('[CreatePage] 에드온 생성 오류:', error);
+      const errorMessage = (error as Error).message || '알 수 없는 오류';
+      toast.error(`에드온 생성 중 오류가 발생했습니다: ${errorMessage}`);
     }
-  }, [generate, store.name, store.namespace]);
+  }, [generate, store.name, store.namespace, store.entities.length, store.items.length, store.blocks.length]);
 
   const handleReset = useCallback(() => {
     setStep('input');
