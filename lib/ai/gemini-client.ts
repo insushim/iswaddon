@@ -2,11 +2,11 @@ import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
-// Gemini 2.0 Flash 모델 사용 (최신 버전)
+// Gemini 3 Flash Preview 모델 사용 (최신 버전)
 export const GEMINI_MODELS = {
-  MAIN: 'gemini-2.0-flash',
-  FAST: 'gemini-2.0-flash',
-  ANALYSIS: 'gemini-2.0-flash',
+  MAIN: 'gemini-3-flash-preview',
+  FAST: 'gemini-3-flash-preview',
+  ANALYSIS: 'gemini-3-flash-preview',
 } as const;
 
 export const GENERATION_CONFIG = {
