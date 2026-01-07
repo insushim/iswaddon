@@ -2,6 +2,139 @@ import { NextRequest, NextResponse } from 'next/server';
 import { AddonBuilder } from '@/lib/addon-generator/core/AddonBuilder';
 import { nanoid } from 'nanoid';
 
+// AI가 생성한 엔티티 형식을 AddonBuilder 형식으로 변환
+function transformEntityForBuilder(aiEntity: Record<string, unknown>): Record<string, unknown> {
+  const transformed: Record<string, unknown> = {
+    identifier: aiEntity.identifier,
+  };
+
+  // properties에서 health, movement, attack 등 추출
+  const props = aiEntity.properties as Record<string, unknown> | undefined;
+  if (props) {
+    if (props.health) {
+      transformed.health = props.health;
+    }
+    if (props.movement) {
+      const mov = props.movement as Record<string, unknown>;
+      transformed.movement = {
+        value: mov.value || 0.25,
+        type: mov.type || 'basic',
+      };
+    }
+    if (props.attack) {
+      transformed.attack = props.attack;
+    }
+    if (props.scale) {
+      transformed.scale = props.scale;
+    }
+  }
+
+  // physics 처리
+  const physics = aiEntity.physics as Record<string, unknown> | undefined;
+  if (physics) {
+    transformed.physics = physics.hasGravity !== false;
+    if (physics.collisionBox) {
+      transformed.collisionBox = physics.collisionBox;
+    }
+  }
+
+  // familyTypes
+  if (aiEntity.familyTypes) {
+    transformed.familyTypes = aiEntity.familyTypes;
+  }
+
+  // aiGoals를 behaviors로 변환
+  const aiGoals = aiEntity.aiGoals as Array<Record<string, unknown>> | undefined;
+  if (aiGoals && aiGoals.length > 0) {
+    transformed.behaviors = aiGoals.map((goal) => ({
+      type: goal.name || goal.type,
+      priority: goal.priority || 0,
+      params: goal.params || {},
+    }));
+  }
+
+  // navigation 기본값
+  const entityType = aiEntity.entityType as string | undefined;
+  if (entityType === 'boss' || props?.movement && (props.movement as Record<string, unknown>).type === 'fly') {
+    transformed.navigation = {
+      type: 'fly',
+      canPathOverWater: true,
+      canSwim: false,
+      avoidWater: false,
+    };
+  } else {
+    transformed.navigation = {
+      type: 'walk',
+      canPathOverWater: false,
+      canSwim: false,
+      avoidWater: true,
+    };
+  }
+
+  // 기타 속성들
+  transformed.isSpawnable = true;
+  transformed.isSummonable = true;
+  transformed.isExperimental = false;
+
+  return transformed;
+}
+
+// AI가 생성한 아이템 형식을 AddonBuilder 형식으로 변환
+function transformItemForBuilder(aiItem: Record<string, unknown>): Record<string, unknown> {
+  const transformed: Record<string, unknown> = {
+    identifier: aiItem.identifier,
+    displayName: aiItem.displayName,
+  };
+
+  const props = aiItem.properties as Record<string, unknown> | undefined;
+  if (props) {
+    if (props.maxStackSize) transformed.maxStackSize = props.maxStackSize;
+    if (props.maxDurability) transformed.durability = { max: props.maxDurability };
+    if (props.damage) transformed.damage = props.damage;
+  }
+
+  // itemType에 따른 카테고리 설정
+  const itemType = aiItem.itemType as string | undefined;
+  if (itemType === 'weapon' || itemType === 'tool') {
+    transformed.category = 'equipment';
+  } else if (itemType === 'food') {
+    transformed.category = 'items';
+    // food 속성 처리
+  } else {
+    transformed.category = 'items';
+  }
+
+  return transformed;
+}
+
+// AI가 생성한 블록 형식을 AddonBuilder 형식으로 변환
+function transformBlockForBuilder(aiBlock: Record<string, unknown>): Record<string, unknown> {
+  const transformed: Record<string, unknown> = {
+    identifier: aiBlock.identifier,
+  };
+
+  const props = aiBlock.properties as Record<string, unknown> | undefined;
+  if (props) {
+    if (props.hardness) transformed.destructibleByMining = props.hardness as number;
+    if (props.blastResistance) transformed.destructibleByExplosion = props.blastResistance as number;
+    if (props.friction) transformed.friction = props.friction;
+    if (props.lightLevel) transformed.lightEmission = props.lightLevel;
+    if (props.mapColor) transformed.mapColor = props.mapColor;
+  }
+
+  // blockType에 따른 카테고리 설정
+  const blockType = aiBlock.blockType as string | undefined;
+  if (blockType === 'building' || blockType === 'decorative') {
+    transformed.category = 'construction';
+  } else {
+    transformed.category = 'construction';
+  }
+
+  if (aiBlock.sound) transformed.sound = aiBlock.sound;
+
+  return transformed;
+}
+
 export async function POST(request: NextRequest) {
   const requestId = nanoid(8);
   console.log(`[API:addon][${requestId}] ========== Request Start ==========`);
@@ -77,8 +210,15 @@ export async function POST(request: NextRequest) {
       console.log(`[API:addon][${requestId}] Adding ${entities.length} entities...`);
       for (let i = 0; i < entities.length; i++) {
         try {
-          console.log(`[API:addon][${requestId}] Adding entity ${i + 1}: ${entities[i]?.identifier || 'unknown'}`);
-          builder.addEntity(entities[i]);
+          const rawEntity = entities[i];
+          console.log(`[API:addon][${requestId}] Raw entity ${i + 1}:`, JSON.stringify(rawEntity).substring(0, 500));
+
+          // AI 형식을 AddonBuilder 형식으로 변환
+          const transformedEntity = transformEntityForBuilder(rawEntity);
+          console.log(`[API:addon][${requestId}] Transformed entity ${i + 1}:`, JSON.stringify(transformedEntity).substring(0, 500));
+
+          builder.addEntity(transformedEntity as any);
+          console.log(`[API:addon][${requestId}] Successfully added entity ${i + 1}: ${rawEntity?.identifier || 'unknown'}`);
         } catch (entityError) {
           console.error(`[API:addon][${requestId}] Error adding entity ${i + 1}:`, entityError);
           throw new Error(`Failed to add entity ${i + 1} (${entities[i]?.identifier || 'unknown'}): ${(entityError as Error).message}`);
@@ -91,8 +231,15 @@ export async function POST(request: NextRequest) {
       console.log(`[API:addon][${requestId}] Adding ${items.length} items...`);
       for (let i = 0; i < items.length; i++) {
         try {
-          console.log(`[API:addon][${requestId}] Adding item ${i + 1}: ${items[i]?.identifier || 'unknown'}`);
-          builder.addItem(items[i]);
+          const rawItem = items[i];
+          console.log(`[API:addon][${requestId}] Raw item ${i + 1}:`, JSON.stringify(rawItem).substring(0, 500));
+
+          // AI 형식을 AddonBuilder 형식으로 변환
+          const transformedItem = transformItemForBuilder(rawItem);
+          console.log(`[API:addon][${requestId}] Transformed item ${i + 1}:`, JSON.stringify(transformedItem).substring(0, 500));
+
+          builder.addItem(transformedItem as any);
+          console.log(`[API:addon][${requestId}] Successfully added item ${i + 1}: ${rawItem?.identifier || 'unknown'}`);
         } catch (itemError) {
           console.error(`[API:addon][${requestId}] Error adding item ${i + 1}:`, itemError);
           throw new Error(`Failed to add item ${i + 1} (${items[i]?.identifier || 'unknown'}): ${(itemError as Error).message}`);
@@ -105,8 +252,15 @@ export async function POST(request: NextRequest) {
       console.log(`[API:addon][${requestId}] Adding ${blocks.length} blocks...`);
       for (let i = 0; i < blocks.length; i++) {
         try {
-          console.log(`[API:addon][${requestId}] Adding block ${i + 1}: ${blocks[i]?.identifier || 'unknown'}`);
-          builder.addBlock(blocks[i]);
+          const rawBlock = blocks[i];
+          console.log(`[API:addon][${requestId}] Raw block ${i + 1}:`, JSON.stringify(rawBlock).substring(0, 500));
+
+          // AI 형식을 AddonBuilder 형식으로 변환
+          const transformedBlock = transformBlockForBuilder(rawBlock);
+          console.log(`[API:addon][${requestId}] Transformed block ${i + 1}:`, JSON.stringify(transformedBlock).substring(0, 500));
+
+          builder.addBlock(transformedBlock as any);
+          console.log(`[API:addon][${requestId}] Successfully added block ${i + 1}: ${rawBlock?.identifier || 'unknown'}`);
         } catch (blockError) {
           console.error(`[API:addon][${requestId}] Error adding block ${i + 1}:`, blockError);
           throw new Error(`Failed to add block ${i + 1} (${blocks[i]?.identifier || 'unknown'}): ${(blockError as Error).message}`);
