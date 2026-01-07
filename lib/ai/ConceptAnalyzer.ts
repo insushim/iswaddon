@@ -1,110 +1,121 @@
 import { generateJSON } from './gemini-client';
 import type { ConceptAnalysis, EntityConcept, ItemConcept, BlockConcept } from '@/types/ai';
 
-const SYSTEM_PROMPT = `You are an expert Minecraft Bedrock Edition addon developer with deep knowledge of:
+const SYSTEM_PROMPT = `You are an expert Minecraft Bedrock Edition addon developer.
+
+CRITICAL RULES:
+1. ALWAYS respond with ONLY valid JSON - no explanations, no markdown
+2. The JSON must EXACTLY match the user's concept/request
+3. Use the EXACT concept from the user input - do NOT substitute with unrelated content
+4. All text fields should be in Korean if the input is Korean, English if English
+5. Minecraft Bedrock format_version: 1.21.50
+
+Your expertise:
 - Entity components, behaviors, and AI goals
 - Item components and custom mechanics
 - Block components, states, and permutations
 - Animation systems (Bedrock animation format)
 - Molang expressions
-- Scripting API (@minecraft/server)
-
-Your task is to analyze user concepts and generate detailed technical specifications.
-Always provide accurate Minecraft Bedrock format_version 1.21.50 compatible configurations.
-Respond in the language the user uses (Korean or English).`;
+- Scripting API (@minecraft/server)`;
 
 export async function analyzeUserConcept(
   concept: string,
   options: { conceptType?: string; language?: string; detailed?: boolean } = {}
 ): Promise<ConceptAnalysis> {
-  const { conceptType = 'auto', language = 'ko', detailed = true } = options;
+  const { conceptType = 'auto', language = 'ko' } = options;
 
-  const prompt = `
-Analyze the following Minecraft addon concept and provide a detailed technical specification.
+  console.log(`[ConceptAnalyzer] analyzeUserConcept called with concept: "${concept.substring(0, 100)}..."`);
 
-User Concept: "${concept}"
+  const prompt = `Analyze this Minecraft addon concept and create a specification.
 
-${conceptType !== 'auto' ? `Concept Type: ${conceptType}` : 'Automatically detect the concept type (entity, item, block, or full addon).'}
-Response Language: ${language === 'ko' ? 'Korean' : 'English'}
+USER'S CONCEPT (MUST match exactly): "${concept}"
 
-Provide JSON with this exact structure:
+${conceptType !== 'auto' ? `Forced concept type: ${conceptType}` : 'Detect the type: entity (mob/creature), item (weapon/tool/food), or block'}
+
+Return this JSON structure (respond in ${language === 'ko' ? 'Korean' : 'English'}):
 {
-  "conceptType": "entity" | "item" | "block" | "addon",
-  "name": "identifier_name_lowercase_with_underscores",
-  "displayName": "Display Name",
-  "description": "Brief description",
-  "category": "category",
-  "difficulty": "simple" | "moderate" | "complex",
+  "conceptType": "entity" or "item" or "block",
+  "name": "lowercase_identifier_based_on_concept",
+  "displayName": "Display Name based on concept",
+  "description": "Description of what user requested",
+  "category": "mob/weapon/building etc",
+  "difficulty": "simple" or "moderate" or "complex",
   "estimatedTime": 30,
-  "components": [
-    { "type": "type", "name": "name", "description": "desc", "params": {} }
-  ],
-  "behaviors": [
-    { "type": "type", "priority": 0, "description": "desc" }
-  ],
+  "components": [{"type": "component_type", "name": "name", "description": "what it does", "params": {}}],
+  "behaviors": [{"type": "behavior_type", "priority": 1, "description": "what it does"}],
   "resources": {
     "textures": ["texture descriptions"],
-    "geometry": "geometry type",
-    "animations": ["animation names"],
-    "sounds": ["sound names"]
+    "geometry": "humanoid/quadruped/custom",
+    "animations": ["idle", "walk", "attack"],
+    "sounds": ["ambient", "hurt", "death"]
   },
-  "features": ["feature1", "feature2"],
-  "suggestions": ["suggestion1"],
-  "warnings": ["warning1"],
-  "dependencies": ["dependency1"]
-}
-`;
+  "features": ["main features of this addon"],
+  "suggestions": ["optional improvements"],
+  "warnings": ["potential issues"],
+  "dependencies": []
+}`;
 
-  return generateJSON<ConceptAnalysis>(prompt, {
-    model: 'MAIN',
-    systemInstruction: SYSTEM_PROMPT,
-  });
+  try {
+    const result = await generateJSON<ConceptAnalysis>(prompt, {
+      model: 'MAIN',
+      systemInstruction: SYSTEM_PROMPT,
+    });
+    console.log(`[ConceptAnalyzer] analyzeUserConcept result:`, JSON.stringify(result).substring(0, 300));
+    return result;
+  } catch (error) {
+    console.error(`[ConceptAnalyzer] analyzeUserConcept error:`, error);
+    throw error;
+  }
 }
 
 export async function analyzeEntityConcept(concept: string): Promise<EntityConcept> {
-  const prompt = `
-Analyze this Minecraft entity concept and create a complete entity specification:
+  console.log(`[ConceptAnalyzer] analyzeEntityConcept called with: "${concept.substring(0, 100)}..."`);
+
+  const prompt = `Create a Minecraft Bedrock entity specification for this concept:
 "${concept}"
 
-Provide complete JSON specification with this exact structure:
+IMPORTANT: The entity MUST match the user's description exactly.
+
+Return this JSON:
 {
-  "identifier": "namespace:entity_name",
-  "displayName": "Display Name",
-  "entityType": "hostile" | "passive" | "neutral" | "boss" | "npc",
+  "identifier": "custom:entity_name_from_concept",
+  "displayName": "Name from user concept",
+  "entityType": "hostile" or "passive" or "neutral" or "boss" or "npc",
   "properties": {
-    "health": { "value": 20, "max": 20 },
-    "movement": { "value": 0.25, "type": "basic" },
-    "attack": { "damage": 3 },
+    "health": {"value": 20, "max": 20},
+    "movement": {"value": 0.25, "type": "basic"},
+    "attack": {"damage": 5},
     "scale": 1.0
   },
   "physics": {
     "hasGravity": true,
     "hasCollision": true,
-    "collisionBox": { "width": 0.6, "height": 1.8 }
+    "collisionBox": {"width": 0.6, "height": 1.8}
   },
-  "familyTypes": ["mob"],
+  "familyTypes": ["mob", "monster"],
   "aiGoals": [
-    { "name": "float", "priority": 0 },
-    { "name": "melee_attack", "priority": 3, "params": {} }
+    {"name": "float", "priority": 0},
+    {"name": "melee_attack", "priority": 2, "params": {"speed_multiplier": 1.2}},
+    {"name": "random_stroll", "priority": 5}
   ],
   "specialAbilities": [
-    { "name": "ability", "type": "attack", "description": "desc", "cooldown": 5 }
+    {"name": "ability_name", "type": "attack/defense/utility", "description": "what it does", "cooldown": 5}
   ],
   "animations": [
-    { "name": "idle", "loop": true },
-    { "name": "walk", "loop": true },
-    { "name": "attack", "loop": false }
+    {"name": "idle", "loop": true},
+    {"name": "walk", "loop": true},
+    {"name": "attack", "loop": false}
   ],
-  "textureDescription": "texture description",
-  "geometryType": "humanoid" | "quadruped" | "custom",
+  "textureDescription": "Description of entity appearance",
+  "geometryType": "humanoid" or "quadruped" or "custom",
   "loot": [
-    { "item": "minecraft:item", "chance": 1.0, "count": { "min": 1, "max": 3 } }
+    {"item": "minecraft:bone", "chance": 1.0, "count": {"min": 0, "max": 2}}
   ],
   "spawnRules": {
-    "biomes": ["plains"],
-    "spawnTime": "night" | "day" | "always",
+    "biomes": ["plains", "forest"],
+    "spawnTime": "night" or "day" or "always",
     "minGroupSize": 1,
-    "maxGroupSize": 4,
+    "maxGroupSize": 3,
     "weight": 100
   },
   "sounds": {
@@ -112,65 +123,83 @@ Provide complete JSON specification with this exact structure:
     "hurt": "mob.zombie.hurt",
     "death": "mob.zombie.death"
   }
-}
-`;
+}`;
 
-  return generateJSON<EntityConcept>(prompt, {
-    model: 'MAIN',
-    systemInstruction: SYSTEM_PROMPT,
-  });
+  try {
+    const result = await generateJSON<EntityConcept>(prompt, {
+      model: 'MAIN',
+      systemInstruction: SYSTEM_PROMPT,
+    });
+    console.log(`[ConceptAnalyzer] analyzeEntityConcept result:`, JSON.stringify(result).substring(0, 300));
+    return result;
+  } catch (error) {
+    console.error(`[ConceptAnalyzer] analyzeEntityConcept error:`, error);
+    throw error;
+  }
 }
 
 export async function analyzeItemConcept(concept: string): Promise<ItemConcept> {
-  const prompt = `
-Analyze this Minecraft item concept:
+  console.log(`[ConceptAnalyzer] analyzeItemConcept called with: "${concept.substring(0, 100)}..."`);
+
+  const prompt = `Create a Minecraft Bedrock item specification for this concept:
 "${concept}"
 
-Provide complete JSON specification with this exact structure:
+IMPORTANT: The item MUST match the user's description exactly.
+
+Return this JSON:
 {
-  "identifier": "namespace:item_name",
-  "displayName": "Display Name",
-  "itemType": "weapon" | "tool" | "armor" | "food" | "throwable" | "material",
+  "identifier": "custom:item_name_from_concept",
+  "displayName": "Name from user concept",
+  "itemType": "weapon" or "tool" or "armor" or "food" or "throwable" or "material",
   "properties": {
-    "maxStackSize": 64,
+    "maxStackSize": 1,
     "maxDurability": 250,
     "damage": 7,
     "enchantable": true,
     "handEquipped": true
   },
   "components": [
-    { "type": "minecraft:weapon", "params": {} }
+    {"type": "minecraft:weapon", "params": {"on_hurt_entity": {"event": "custom_attack"}}}
   ],
   "specialAbilities": [
-    { "name": "ability", "trigger": "on_use", "description": "desc" }
+    {"name": "ability_name", "trigger": "on_use/on_hit/passive", "description": "what it does"}
   ],
   "craftingRecipe": {
     "type": "shaped",
-    "ingredients": ["minecraft:diamond"],
+    "ingredients": ["minecraft:diamond", "minecraft:stick"],
     "pattern": ["D", "D", "S"]
   },
-  "textureDescription": "16x16 pixel art description",
+  "textureDescription": "Description of item appearance (16x16 pixel art)",
   "category": "Equipment",
-  "creativeGroup": "itemGroup.name"
-}
-`;
+  "creativeGroup": "itemGroup.name.sword"
+}`;
 
-  return generateJSON<ItemConcept>(prompt, {
-    model: 'MAIN',
-    systemInstruction: SYSTEM_PROMPT,
-  });
+  try {
+    const result = await generateJSON<ItemConcept>(prompt, {
+      model: 'MAIN',
+      systemInstruction: SYSTEM_PROMPT,
+    });
+    console.log(`[ConceptAnalyzer] analyzeItemConcept result:`, JSON.stringify(result).substring(0, 300));
+    return result;
+  } catch (error) {
+    console.error(`[ConceptAnalyzer] analyzeItemConcept error:`, error);
+    throw error;
+  }
 }
 
 export async function analyzeBlockConcept(concept: string): Promise<BlockConcept> {
-  const prompt = `
-Analyze this Minecraft block concept:
+  console.log(`[ConceptAnalyzer] analyzeBlockConcept called with: "${concept.substring(0, 100)}..."`);
+
+  const prompt = `Create a Minecraft Bedrock block specification for this concept:
 "${concept}"
 
-Provide complete JSON specification with this exact structure:
+IMPORTANT: The block MUST match the user's description exactly.
+
+Return this JSON:
 {
-  "identifier": "namespace:block_name",
-  "displayName": "Display Name",
-  "blockType": "decorative" | "functional" | "building" | "crop",
+  "identifier": "custom:block_name_from_concept",
+  "displayName": "Name from user concept",
+  "blockType": "decorative" or "functional" or "building" or "crop",
   "properties": {
     "hardness": 3.0,
     "blastResistance": 6.0,
@@ -179,27 +208,33 @@ Provide complete JSON specification with this exact structure:
     "mapColor": "#808080"
   },
   "states": [
-    { "name": "facing", "values": ["north", "south", "east", "west"], "default": "north" }
+    {"name": "facing", "values": ["north", "south", "east", "west"], "default": "north"}
   ],
   "components": [
-    { "type": "minecraft:destructible_by_mining", "params": {} }
+    {"type": "minecraft:destructible_by_mining", "params": {"seconds_to_destroy": 1.5}}
   ],
   "permutations": [
-    { "condition": "query.block_state('facing') == 'north'", "components": {} }
+    {"condition": "query.block_state('facing') == 'north'", "components": {}}
   ],
   "loot": {
     "dropsSelf": true,
     "toolRequired": "pickaxe"
   },
-  "textureDescription": { "top": "top tex", "side": "side tex", "bottom": "bottom tex" },
-  "geometryType": "full_block" | "slab" | "custom",
+  "textureDescription": {"top": "top texture", "side": "side texture", "bottom": "bottom texture"},
+  "geometryType": "full_block" or "slab" or "custom",
   "sound": "stone",
   "category": "Construction"
-}
-`;
+}`;
 
-  return generateJSON<BlockConcept>(prompt, {
-    model: 'MAIN',
-    systemInstruction: SYSTEM_PROMPT,
-  });
+  try {
+    const result = await generateJSON<BlockConcept>(prompt, {
+      model: 'MAIN',
+      systemInstruction: SYSTEM_PROMPT,
+    });
+    console.log(`[ConceptAnalyzer] analyzeBlockConcept result:`, JSON.stringify(result).substring(0, 300));
+    return result;
+  } catch (error) {
+    console.error(`[ConceptAnalyzer] analyzeBlockConcept error:`, error);
+    throw error;
+  }
 }

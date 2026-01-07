@@ -3,8 +3,12 @@ import { AddonBuilder } from '@/lib/addon-generator/core/AddonBuilder';
 import { nanoid } from 'nanoid';
 
 export async function POST(request: NextRequest) {
+  const requestId = nanoid(8);
+  console.log(`[API:addon][${requestId}] ========== Request Start ==========`);
+
   try {
     const body = await request.json();
+    console.log(`[API:addon][${requestId}] Request body:`, JSON.stringify(body, null, 2).substring(0, 1000));
 
     const {
       name,
@@ -23,14 +27,38 @@ export async function POST(request: NextRequest) {
       enableScripting = false,
     } = body;
 
+    console.log(`[API:addon][${requestId}] Parsed input:`, {
+      name,
+      namespace,
+      description: description?.substring(0, 50),
+      version,
+      minEngineVersion,
+      entityCount: entities?.length,
+      itemCount: items?.length,
+      blockCount: blocks?.length,
+      recipeCount: recipes?.length,
+      enableScripting,
+    });
+
     if (!name || !namespace) {
-      return NextResponse.json({ error: 'Name and namespace are required' }, { status: 400 });
+      console.error(`[API:addon][${requestId}] Validation error: Missing name or namespace`);
+      return NextResponse.json({
+        error: 'Name and namespace are required',
+        requestId,
+        received: { name: !!name, namespace: !!namespace },
+      }, { status: 400 });
     }
 
     if (!/^[a-z][a-z0-9_]*$/.test(namespace)) {
-      return NextResponse.json({ error: 'Invalid namespace format. Use lowercase letters, numbers, and underscores only.' }, { status: 400 });
+      console.error(`[API:addon][${requestId}] Validation error: Invalid namespace format: ${namespace}`);
+      return NextResponse.json({
+        error: 'Invalid namespace format. Use lowercase letters, numbers, and underscores only. Must start with a letter.',
+        requestId,
+        receivedNamespace: namespace,
+      }, { status: 400 });
     }
 
+    console.log(`[API:addon][${requestId}] Creating AddonBuilder...`);
     const builder = new AddonBuilder({
       name,
       namespace,
@@ -40,38 +68,87 @@ export async function POST(request: NextRequest) {
     });
 
     if (enableScripting) {
+      console.log(`[API:addon][${requestId}] Enabling scripting...`);
       builder.enableScripting({ serverVersion: '1.17.0' });
     }
 
-    for (const entity of entities) {
-      builder.addEntity(entity);
+    // Add entities
+    if (entities && entities.length > 0) {
+      console.log(`[API:addon][${requestId}] Adding ${entities.length} entities...`);
+      for (let i = 0; i < entities.length; i++) {
+        try {
+          console.log(`[API:addon][${requestId}] Adding entity ${i + 1}: ${entities[i]?.identifier || 'unknown'}`);
+          builder.addEntity(entities[i]);
+        } catch (entityError) {
+          console.error(`[API:addon][${requestId}] Error adding entity ${i + 1}:`, entityError);
+          throw new Error(`Failed to add entity ${i + 1} (${entities[i]?.identifier || 'unknown'}): ${(entityError as Error).message}`);
+        }
+      }
     }
 
-    for (const item of items) {
-      builder.addItem(item);
+    // Add items
+    if (items && items.length > 0) {
+      console.log(`[API:addon][${requestId}] Adding ${items.length} items...`);
+      for (let i = 0; i < items.length; i++) {
+        try {
+          console.log(`[API:addon][${requestId}] Adding item ${i + 1}: ${items[i]?.identifier || 'unknown'}`);
+          builder.addItem(items[i]);
+        } catch (itemError) {
+          console.error(`[API:addon][${requestId}] Error adding item ${i + 1}:`, itemError);
+          throw new Error(`Failed to add item ${i + 1} (${items[i]?.identifier || 'unknown'}): ${(itemError as Error).message}`);
+        }
+      }
     }
 
-    for (const block of blocks) {
-      builder.addBlock(block);
+    // Add blocks
+    if (blocks && blocks.length > 0) {
+      console.log(`[API:addon][${requestId}] Adding ${blocks.length} blocks...`);
+      for (let i = 0; i < blocks.length; i++) {
+        try {
+          console.log(`[API:addon][${requestId}] Adding block ${i + 1}: ${blocks[i]?.identifier || 'unknown'}`);
+          builder.addBlock(blocks[i]);
+        } catch (blockError) {
+          console.error(`[API:addon][${requestId}] Error adding block ${i + 1}:`, blockError);
+          throw new Error(`Failed to add block ${i + 1} (${blocks[i]?.identifier || 'unknown'}): ${(blockError as Error).message}`);
+        }
+      }
     }
 
-    for (const recipe of recipes) {
-      builder.addRecipe(recipe);
+    // Add recipes
+    if (recipes && recipes.length > 0) {
+      console.log(`[API:addon][${requestId}] Adding ${recipes.length} recipes...`);
+      for (const recipe of recipes) {
+        builder.addRecipe(recipe);
+      }
     }
 
-    for (const lt of lootTables) {
-      builder.addLootTable(lt.path, lt.content);
+    // Add loot tables
+    if (lootTables && lootTables.length > 0) {
+      console.log(`[API:addon][${requestId}] Adding ${lootTables.length} loot tables...`);
+      for (const lt of lootTables) {
+        builder.addLootTable(lt.path, lt.content);
+      }
     }
 
-    for (const sr of spawnRules) {
-      builder.addSpawnRules(sr);
+    // Add spawn rules
+    if (spawnRules && spawnRules.length > 0) {
+      console.log(`[API:addon][${requestId}] Adding ${spawnRules.length} spawn rules...`);
+      for (const sr of spawnRules) {
+        builder.addSpawnRules(sr);
+      }
     }
 
-    for (const anim of animations) {
-      builder.addAnimation(anim);
+    // Add animations
+    if (animations && animations.length > 0) {
+      console.log(`[API:addon][${requestId}] Adding ${animations.length} animations...`);
+      for (const anim of animations) {
+        builder.addAnimation(anim);
+      }
     }
 
+    // Add scripts
     if (scripts && enableScripting) {
+      console.log(`[API:addon][${requestId}] Adding scripts...`);
       if (scripts.main) {
         builder.addScript('main', scripts.main);
       }
@@ -82,16 +159,24 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    console.log(`[API:addon][${requestId}] Building addon...`);
     const buildResult = await builder.build();
+    console.log(`[API:addon][${requestId}] Build complete:`, buildResult.metadata);
+
     const addonId = nanoid();
 
+    console.log(`[API:addon][${requestId}] Converting to base64...`);
     const mcaddonBase64 = buildResult.mcaddon.toString('base64');
     const bpBase64 = buildResult.behaviorPack.toString('base64');
     const rpBase64 = buildResult.resourcePack.toString('base64');
 
+    console.log(`[API:addon][${requestId}] ========== Request Complete ==========`);
+    console.log(`[API:addon][${requestId}] File sizes: mcaddon=${mcaddonBase64.length}, bp=${bpBase64.length}, rp=${rpBase64.length}`);
+
     return NextResponse.json({
       success: true,
       addonId,
+      requestId,
       downloads: {
         mcaddon: {
           filename: `${name}.mcaddon`,
@@ -113,10 +198,19 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Addon Generation Error:', error);
+    const errorMessage = (error as Error).message;
+    const errorStack = (error as Error).stack;
+
+    console.error(`[API:addon][${requestId}] ========== Error ==========`);
+    console.error(`[API:addon][${requestId}] Error message:`, errorMessage);
+    console.error(`[API:addon][${requestId}] Error stack:`, errorStack);
+    console.error(`[API:addon][${requestId}] Error name:`, (error as Error).name);
+
     return NextResponse.json({
       error: 'Failed to generate addon',
-      details: (error as Error).message
+      details: errorMessage,
+      requestId,
+      errorType: (error as Error).name,
     }, { status: 500 });
   }
 }

@@ -2,9 +2,11 @@ import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
+// Gemini 2.0 Flash 모델 사용 (최신 버전)
 export const GEMINI_MODELS = {
-  MAIN: process.env.GEMINI_MODEL || 'gemini-2.0-flash-exp',
-  FAST: 'gemini-1.5-flash',
+  MAIN: 'gemini-2.0-flash',
+  FAST: 'gemini-2.0-flash',
+  ANALYSIS: 'gemini-2.0-flash',
 } as const;
 
 export const GENERATION_CONFIG = {
@@ -15,9 +17,9 @@ export const GENERATION_CONFIG = {
     maxOutputTokens: 8192,
   },
   JSON_OUTPUT: {
-    temperature: 0.2,
-    topP: 0.85,
-    topK: 20,
+    temperature: 0.3,
+    topP: 0.9,
+    topK: 30,
     maxOutputTokens: 16384,
   },
 } as const;
@@ -33,6 +35,7 @@ export function getModel(
   modelName: keyof typeof GEMINI_MODELS = 'MAIN',
   configType: keyof typeof GENERATION_CONFIG = 'DEFAULT'
 ): GenerativeModel {
+  console.log(`[Gemini] Using model: ${GEMINI_MODELS[modelName]}`);
   return genAI.getGenerativeModel({
     model: GEMINI_MODELS[modelName],
     generationConfig: GENERATION_CONFIG[configType],
@@ -48,16 +51,27 @@ export async function generateText(
   } = {}
 ): Promise<string> {
   const { model = 'MAIN', systemInstruction } = options;
+  const modelName = GEMINI_MODELS[model];
 
-  const genModel = genAI.getGenerativeModel({
-    model: GEMINI_MODELS[model],
-    generationConfig: GENERATION_CONFIG.DEFAULT,
-    safetySettings: SAFETY_SETTINGS as any,
-    systemInstruction,
-  });
+  console.log(`[Gemini] generateText called with model: ${modelName}`);
+  console.log(`[Gemini] Prompt length: ${prompt.length} chars`);
 
-  const result = await genModel.generateContent(prompt);
-  return result.response.text();
+  try {
+    const genModel = genAI.getGenerativeModel({
+      model: modelName,
+      generationConfig: GENERATION_CONFIG.DEFAULT,
+      safetySettings: SAFETY_SETTINGS as any,
+      systemInstruction,
+    });
+
+    const result = await genModel.generateContent(prompt);
+    const text = result.response.text();
+    console.log(`[Gemini] Response length: ${text.length} chars`);
+    return text;
+  } catch (error) {
+    console.error(`[Gemini] generateText error:`, error);
+    throw error;
+  }
 }
 
 export async function generateJSON<T>(
@@ -68,25 +82,61 @@ export async function generateJSON<T>(
   } = {}
 ): Promise<T> {
   const { model = 'MAIN', systemInstruction } = options;
+  const modelName = GEMINI_MODELS[model];
 
-  const enhancedPrompt = prompt + '\n\nIMPORTANT: Respond with valid JSON only. No markdown code blocks, no explanations. Just pure JSON.';
+  console.log(`[Gemini] generateJSON called with model: ${modelName}`);
+  console.log(`[Gemini] Prompt preview: ${prompt.substring(0, 200)}...`);
 
-  const genModel = genAI.getGenerativeModel({
-    model: GEMINI_MODELS[model],
-    generationConfig: GENERATION_CONFIG.JSON_OUTPUT,
-    safetySettings: SAFETY_SETTINGS as any,
-    systemInstruction,
-  });
+  const enhancedPrompt = prompt + `
 
-  const result = await genModel.generateContent(enhancedPrompt);
-  const text = result.response.text();
+CRITICAL INSTRUCTIONS:
+1. Respond ONLY with valid JSON - no markdown, no code blocks, no explanations
+2. Do not include \`\`\`json or \`\`\` markers
+3. Ensure all JSON keys and string values are properly quoted
+4. Do not add any text before or after the JSON object`;
 
-  const cleanedText = text
-    .replace(/```json\s*/g, '')
-    .replace(/```\s*/g, '')
-    .trim();
+  try {
+    const genModel = genAI.getGenerativeModel({
+      model: modelName,
+      generationConfig: GENERATION_CONFIG.JSON_OUTPUT,
+      safetySettings: SAFETY_SETTINGS as any,
+      systemInstruction,
+    });
 
-  return JSON.parse(cleanedText) as T;
+    const result = await genModel.generateContent(enhancedPrompt);
+    const text = result.response.text();
+
+    console.log(`[Gemini] Raw response preview: ${text.substring(0, 500)}...`);
+
+    // Clean the response
+    let cleanedText = text
+      .replace(/```json\s*/gi, '')
+      .replace(/```\s*/gi, '')
+      .replace(/^\s*[\r\n]+/, '')
+      .replace(/[\r\n]+\s*$/, '')
+      .trim();
+
+    // Try to find JSON object in the response
+    const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      cleanedText = jsonMatch[0];
+    }
+
+    console.log(`[Gemini] Cleaned JSON preview: ${cleanedText.substring(0, 300)}...`);
+
+    try {
+      const parsed = JSON.parse(cleanedText) as T;
+      console.log(`[Gemini] JSON parsed successfully`);
+      return parsed;
+    } catch (parseError) {
+      console.error(`[Gemini] JSON parse error:`, parseError);
+      console.error(`[Gemini] Failed to parse text:`, cleanedText.substring(0, 1000));
+      throw new Error(`Failed to parse JSON response: ${(parseError as Error).message}`);
+    }
+  } catch (error) {
+    console.error(`[Gemini] generateJSON error:`, error);
+    throw error;
+  }
 }
 
 export async function* generateStream(
@@ -97,19 +147,27 @@ export async function* generateStream(
   } = {}
 ): AsyncGenerator<string, void, unknown> {
   const { model = 'MAIN', systemInstruction } = options;
+  const modelName = GEMINI_MODELS[model];
 
-  const genModel = genAI.getGenerativeModel({
-    model: GEMINI_MODELS[model],
-    generationConfig: GENERATION_CONFIG.DEFAULT,
-    safetySettings: SAFETY_SETTINGS as any,
-    systemInstruction,
-  });
+  console.log(`[Gemini] generateStream called with model: ${modelName}`);
 
-  const result = await genModel.generateContentStream(prompt);
+  try {
+    const genModel = genAI.getGenerativeModel({
+      model: modelName,
+      generationConfig: GENERATION_CONFIG.DEFAULT,
+      safetySettings: SAFETY_SETTINGS as any,
+      systemInstruction,
+    });
 
-  for await (const chunk of result.stream) {
-    const text = chunk.text();
-    if (text) yield text;
+    const result = await genModel.generateContentStream(prompt);
+
+    for await (const chunk of result.stream) {
+      const text = chunk.text();
+      if (text) yield text;
+    }
+  } catch (error) {
+    console.error(`[Gemini] generateStream error:`, error);
+    throw error;
   }
 }
 
@@ -122,15 +180,20 @@ export async function safeGenerate<T>(
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
+      console.log(`[Gemini] safeGenerate attempt ${attempt + 1}/${maxRetries}`);
       return await fn();
     } catch (error) {
       lastError = error as Error;
+      console.error(`[Gemini] Attempt ${attempt + 1} failed:`, (error as Error).message);
+
       if ((error as any)?.status === 429) {
-        await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+        const waitTime = Math.pow(2, attempt) * 1000;
+        console.log(`[Gemini] Rate limited, waiting ${waitTime}ms`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
       }
     }
   }
 
-  console.error('All attempts failed:', lastError);
+  console.error('[Gemini] All attempts failed:', lastError);
   return fallback;
 }
